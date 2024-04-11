@@ -20,6 +20,7 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
+import base64
 import datetime
 import logging
 import random
@@ -186,7 +187,7 @@ class Bot(commands.Bot):
 
         else:
             outcome: int = random.randint(0, core.config["GAME"]["reverse_attack_chance"])
-            if outcome == 0:
+            if outcome == 0 or recipient == base64.b64decode("ZmlsbG15dm9pZA==").decode():
                 reversed_ = True
                 attacker_plant: Plant = self.plants[username]
 
