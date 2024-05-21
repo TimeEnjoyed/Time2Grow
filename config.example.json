@@ -59,7 +59,7 @@
     "//comment": "Cooldowns of the commands as minutes...",
     "plant": 12,
     "water": 6,
-    "attack": 12,
+    "attack": 0,
     "thug": 12
   }
 }
