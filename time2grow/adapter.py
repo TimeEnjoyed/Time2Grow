@@ -22,5 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from twitchio import web
+
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
+    from .bot import Bot
+
+
+class GameAdapter(web.StarletteAdapter["Bot"]):
+    def __init__(self, *, host: str, port: int, client: Bot, domain: str | None = None) -> None:
+        super().__init__(host=host, port=port, client=client, domain=domain)
+
+    async def sse_endpoint(self, request: Request) -> ...: ...
+
+    async def game_overlay(self, request: Request) -> ...: ...

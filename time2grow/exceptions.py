@@ -22,5 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+__all__ = ("PlantError", "PlantExistsError", "PlantsFullError")
+
+
+class PlantError(Exception): ...
+
+
+class PlantsFullError(PlantError): ...
+
+
+class PlantExistsError(PlantError): ...

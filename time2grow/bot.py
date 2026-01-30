@@ -1,215 +1,116 @@
 """
-Copyright (c) 2023 EvieePy(MystyPy)
+MIT License
 
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
+Copyright (c) 2026 EvieePy <evieepy@gmail.com>
 
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
-import datetime
+
+from __future__ import annotations
+
 import logging
-import random
-from typing import Any
+from typing import TYPE_CHECKING, Unpack, cast
 
-import asqlite
 import twitchio
-from twitchio.ext import commands, routines
+from twitchio import eventsub
+from twitchio.ext import commands
 
-import core
-
-from .api import Server
-from .database import Database
-from .plant import Plant
+from .adapter import GameAdapter
 
 
-logger: logging.Logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from twitchio.authentication import UserTokenPayload, ValidateTokenPayload
+
+    from database import Database
+
+    from .components.game import GameComponent
+    from .types_ import BotOptionsT
 
 
-class Bot(commands.Bot):
-    def __init__(self, *, server: Server, database: Database) -> None:
-        self.server = server
-        self.database = database
+LOGGER: logging.Logger = logging.getLogger(__name__)
 
-        self.plants: dict[str, Plant] = {}
-        self._previous_dispatch: list[dict[str, Any]] = []
 
-        self.game_loop.start()
+# Required scopes from broadcasters...
+SCOPES: twitchio.Scopes = twitchio.Scopes()
+SCOPES.channel_manage_redemptions = True
+SCOPES.channel_read_redemptions = True
+SCOPES.channel_bot = True
 
-        config: dict[str, Any] = core.config["BOT"]
-        super().__init__(
-            token=config["token"],
-            prefix=config["prefix"],
-            initial_channels=[config["channel"]],
-        )
 
-    async def event_command_error(self, context: commands.Context, error: commands.TwitchCommandError) -> None:
-        if isinstance(error, commands.CommandNotFound):
-            return
+class Bot(commands.AutoBot):
+    def __init__(self, db: Database, **options: Unpack[BotOptionsT]) -> None:
+        self.db = db
+        self.overlays: dict[str, str] = {}
 
-        if isinstance(error, commands.CommandOnCooldown):
-            return
+        adapter = GameAdapter(host="localhost", port=4343, client=self)
+        super().__init__(**options, scopes=SCOPES, adapter=adapter)
 
-        logger.error(error)
+    async def setup_hook(self) -> None:
+        await self.load_module(".", package="time2grow.components")
+        await self.load_overlays()
 
-    @routines.routine(minutes=1, wait_first=True)
-    async def game_loop(self) -> None:
-        for username, plant in self.plants.copy().items():
-            if plant.dead:
-                del self.plants[username]
-
-        for plant in self.plants.values():
-            await plant.update()
-
-        top: list[Plant] = list(sorted(self.plants.values(), key=lambda p: p.created))
-        for index, plant in enumerate(top, 1):
-            plant.top = index
-
-        self.dispatch()
-
-    def plants_to_json(self) -> list[dict[str, Any]]:
-        return list(reversed([p.as_dict() for p in self.plants.values()]))
-
-    def dispatch(self, data: dict[str, Any] | None = None):
-        if not data:
-            data = {"extra": None}
-
-        plant_data: list[dict[str, Any]] = self.plants_to_json()
-        data["plants"] = plant_data
-
-        self.server.dispatch(data)
-        self._previous_dispatch = plant_data
+    async def load_overlays(self) -> None:
+        overlays = await self.db.fetch_broadcasters()
+        self.overlays = {o.uid: o.overlay_id for o in overlays}
 
     async def event_ready(self) -> None:
-        print(f"Logged in: {self.nick}")
+        LOGGER.info("Successfully logged in as %s", self.user)
 
-    @commands.command()
-    @commands.cooldown(1, core.config["COOLDOWNS"]["plant"] * 60, commands.Bucket.user)
-    async def plant(self, ctx: commands.Context) -> None:
-        if len(self.plants) == core.config["GAME"]["available"]:
-            await ctx.send("Plant house is full... Buy plant when plant house not full!")
+    async def event_oauth_authorized(self, payload: UserTokenPayload) -> None:
+        if not payload.user_id:
             return
 
-        username: str = ctx.author.name
-        if username in self.plants:
-            await ctx.send(f"{username} you may not own more then 1 plant PixelBob")
+        await self.add_token(payload.access_token, payload.refresh_token)
+
+        if payload.user_id == self.user.id:  # type: ignore [Reason: We always pass bot_id]
             return
 
-        self.plants[username] = Plant(username, database=self.database, top=len(self.plants) + 1)
-        await ctx.send(f"{username} planted a plant in the plant house SeemsGood")
+        await self.subscribe(payload.user_id)
 
-        self.dispatch({"extra": {"event": "create", "username": username}})
-        await self.database.update_stats(username, planted=1)
+        user = self.create_partialuser(user_id=payload.user_id)
+        game_component: GameComponent = cast("GameComponent", self.get_component("GameComponent"))
+        await game_component.setup_game(user)
 
-    @commands.command()
-    @commands.cooldown(1, core.config["COOLDOWNS"]["water"] * 60, commands.Bucket.user)
-    async def water(self, ctx: commands.Context) -> None:
-        username: str = ctx.author.name
+    async def subscribe(self, user_id: str) -> None:
+        subs: list[eventsub.SubscriptionPayload] = [
+            eventsub.ChannelPointsRedeemAddSubscription(broadcaster_user_id=user_id),
+            eventsub.ChannelPointsRedeemUpdateSubscription(broadcaster_user_id=user_id),
+            eventsub.StreamOnlineSubscription(broadcaster_user_id=user_id),
+            eventsub.StreamOfflineSubscription(broadcaster_user_id=user_id),
+            eventsub.ChatMessageSubscription(broadcaster_user_id=user_id, user_id=self.bot_id),
+        ]
 
-        if username not in self.plants:
-            await ctx.send("You can't water da ground and expect a plant to grow from magic... Buy a plant FamilyMan")
-            return
+        await self.multi_subscribe(subs)
 
-        plant: Plant = self.plants[username]
-        if plant.dead:
-            await ctx.send("Your plant is dead RIP. Buy a new one.")
-            return
+    async def add_token(self, token: str, refresh: str) -> ValidateTokenPayload:
+        validated = await super().add_token(token, refresh)
 
-        await ctx.send(f"{username} watered their plant MyAvatar")
-        await plant.update(water=True)
+        if validated.user_id:
+            await self.db.add_token(validated.user_id, token=token, refresh=refresh)
 
-        self.dispatch({"extra": {"event": "water", "username": username}})
-        await self.database.update_stats(username, watered=1)
+        return validated
 
-    @commands.command()
-    @commands.cooldown(1, core.config["COOLDOWNS"]["thug"] * 60, commands.Bucket.user)
-    async def thug(self, ctx: commands.Context) -> None:
-        username: str = ctx.author.name
+    async def load_tokens(self, path: str | None = None) -> None:
+        tokens = await self.db.fetch_tokens()
 
-        if username not in self.plants:
-            await ctx.send("You can't thug da air... Buy a plant FamilyMan")
-            return
+        for model in tokens:
+            await self.add_token(model.token, model.refresh)
 
-        plant: Plant = self.plants[username]
-        if plant.dead:
-            await ctx.send("Your plant is dead RIP. Buy a new one.")
-            return
-
-        await ctx.send(f"{username} thug lifed their plant GlitchCat")
-        await plant.update(glasses=True)
-
-        self.dispatch({"extra": {"event": "glasses", "username": username}})
-        await self.database.update_stats(username, thugged=1)
-
-    @commands.command()
-    @commands.cooldown(1, core.config["COOLDOWNS"]["attack"] * 60, commands.Bucket.user)
-    async def attack(self, ctx: commands.Context, *, recipient: str = "") -> None:
-        username: str = ctx.author.name
-        recipient = recipient.lower().removeprefix('@')
-
-        if recipient not in self.plants:
-            await ctx.send(f"{username} used their most special attack on the wind... It did nothing!")
-            return
-
-        if username == recipient:
-            await ctx.send(f"{username} tripped over themself. Kinda weird cause they don't have legs")
-            return
-
-        plant: Plant = self.plants[recipient]
-        if plant.dead:
-            await ctx.send(f"{username} tried to attack a ghost. But they got scared and ran away FailFish")
-            return
-
-        if plant.wilted:
-            await ctx.send(f"{username} attacked a thirsty plant. They felt bad and went to bed crying BibleThump")
-            return
-
-        reversed_: bool = False
-
-        attack: str = random.choice(core.config["GAME"]["attacks"])
-        if username not in self.plants:
-            await ctx.send(f"{username} used {attack} on {recipient}, it did something.")
-            await plant.update(attacked=True)
-
-        else:
-            outcome: int = random.randint(0, core.config["GAME"]["reverse_attack_chance"])
-            if outcome == 0:
-                reversed_ = True
-                attacker_plant: Plant = self.plants[username]
-
-                woops: str = random.choice(core.config["GAME"]["woops"])
-                await ctx.send(
-                    f"{username} used {attack} on {recipient}, but {woops}, and {recipient} stole all their water."
-                )
-
-                await plant.update(water=True)
-                await attacker_plant.update(attacked=True)
-            else:
-                await ctx.send(f"{username} used {attack} on {recipient}, it was super effective.")
-                await plant.update(attacked=True)
-
-        self.dispatch(
-            data={
-                "extra": {
-                    "event": "attacked",
-                    "attacker": username,
-                    "recipient": recipient,
-                    "reversed": reversed_
-                }
-            }
-        )
-        await self.database.update_stats(recipient, victim=1)
-        await self.database.update_stats(username, sabotaged=1)
+    def add_command(self, command: commands.Command[commands.Component, ...]) -> None:
+        return super().add_command(command)

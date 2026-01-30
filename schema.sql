@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS broadcasters(
+    uid TEXT PRIMARY KEY,
+    overlay_id TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tokens(
+    uid TEXT PRIMARY KEY,
+    token TEXT UNIQUE NOT NULL,
+    refresh TEXT UNIQUE NOT NULL
+);

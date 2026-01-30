@@ -22,5 +22,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from twitchio.ext import commands
+
+
+if TYPE_CHECKING:
+    from ..bot import Bot
+
+
+class AdminComponent(commands.Component):
+    def __init__(self, bot: Bot) -> None:
+        self.bot = bot
+
+    @commands.Component.guard()
+    async def is_owner(self, ctx: commands.Context[Bot]) -> bool:
+        return ctx.author.id == self.bot.owner_id
+
+    @commands.command()
+    async def unload(self, ctx: commands.Context[Bot], *, module: str) -> None:
+        await self.bot.unload_module(module)
+
+    @commands.command()
+    async def reload(self, ctx: commands.Context[Bot], *, module: str) -> None:
+        await self.bot.reload_module(module)
+
+
+async def setup(bot: Bot) -> None:
+    await bot.add_component(AdminComponent(bot))

@@ -22,5 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from typing import TYPE_CHECKING
+
+import yaml
+
+
+if TYPE_CHECKING:
+    from .types_ import ConfigT
+
+
+with open("config.yaml") as fp:
+    CONFIG: ConfigT = yaml.load(fp, Loader=yaml.CLoader)

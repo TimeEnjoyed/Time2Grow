@@ -22,5 +22,43 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from typing import TYPE_CHECKING, Any, Self
+
+import asyncpg
+
+
+if TYPE_CHECKING:
+    from cryptography.fernet import Fernet
+
+
+__all__ = ("BaseModel", "BroadcasterModel", "DecryptedTokenModel", "TokenModel")
+
+
+class BaseModel(asyncpg.Record):
+    def __getattr__(self, attr: str) -> Any:
+        return self[attr]
+
+
+class BroadcasterModel(BaseModel):
+    uid: str
+    overlay_id: str
+
+
+class TokenModel(BaseModel):
+    uid: str
+    token: str
+    refresh: str
+
+
+class DecryptedTokenModel:
+    def __init__(self, *, uid: str, token: str, refresh: str) -> None:
+        self.uid = uid
+        self.token = token
+        self.refresh = refresh
+
+    @classmethod
+    def from_model(cls, *, data: TokenModel, fernet: Fernet) -> Self:
+        decrypted_t = fernet.decrypt(data.token).decode()
+        decrypted_r = fernet.decrypt(data.refresh).decode()
+
+        return cls(uid=data.uid, token=decrypted_t, refresh=decrypted_r)

@@ -22,5 +22,60 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol, TypedDict
+
+
+if TYPE_CHECKING:
+    from twitchio.ext import commands
+    from twitchio.utils import Colour
+
+    from .bot import Bot
+
+
+class RewardCommandCoro(Protocol):
+    async def __call__(self, ctx: commands.Context[Bot], *, inp: str) -> None: ...
+
+
+class BotOptionsT(TypedDict):
+    client_id: str
+    client_secret: str
+    bot_id: str
+    owner_id: str
+    prefix: list[str]
+
+
+class GeneralConfigT(TypedDict):
+    logging: int
+
+
+class DatabaseConfigT(TypedDict):
+    password: str
+    dsn: str
+    encryption_key: str
+
+
+class GameConfigT(TypedDict):
+    max_plants: int
+    base_health: int
+    grace_period: int
+    plant_cost: int
+    attack_cost: int
+    water_cost: int
+    help_cost: int
+    shield_cost: int
+
+
+class ConfigT(TypedDict):
+    general: GeneralConfigT
+    database: DatabaseConfigT
+    bot: BotOptionsT
+    game: GameConfigT
+
+
+class RewardCommandMappingT(TypedDict):
+    cb: RewardCommandCoro
+    prompt: str | None
+    cost: int
+    colour: Colour

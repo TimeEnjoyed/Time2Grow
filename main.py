@@ -22,5 +22,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+import asyncio
+import logging
+
+import twitchio
+
+from database import Database
+from time2grow import CONFIG, Bot
+
+
+LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+def main() -> None:
+    twitchio.utils.setup_logging(level=CONFIG["general"]["logging"])
+
+    DB_CONFIG = CONFIG["database"]
+    BOT_CONFIG = CONFIG["bot"]
+
+    password = DB_CONFIG["password"]
+    dsn = DB_CONFIG["dsn"]
+    enc_key = DB_CONFIG["encryption_key"]
+
+    async def runner() -> None:
+        async with Database(password=password, dsn=dsn, encryption_key=enc_key) as db, Bot(db, **BOT_CONFIG) as bot:
+            await bot.start(save_tokens=False)
+
+    try:
+        asyncio.run(runner())
+    except KeyboardInterrupt:
+        LOGGER.warning("Shutting down due to KeyboardInterrupt.")
+
+
+if __name__ == "__main__":
+    main()

@@ -22,5 +22,27 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from .bot import Bot as Bot
-from .config import CONFIG as CONFIG
+from __future__ import annotations
+
+import pathlib
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from ..bot import Bot
+
+
+async def setup(bot: Bot) -> None:
+    package = str(__package__)
+    paths = pathlib.Path(str(__path__[0])).glob("*.py")
+
+    for path in paths:
+        stem = path.stem
+
+        if stem.startswith("__"):
+            continue
+
+        await bot.load_module(f".{stem}", package=package)
+
+
+async def teardown(bot: Bot) -> None: ...

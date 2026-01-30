@@ -1,0 +1,21 @@
+general:
+  logging: 20  # 0 NOTSET, 10 DEBUG, 20 INFO, 30 WARNING, 40 ERROR, 50 CRITICAL
+database:
+  password: "..."
+  dsn: "..."
+  encryption_key: ""
+bot:
+  client_id: ""
+  client_secret: ""
+  bot_id: ""
+  owner_id: ""
+  prefix: []
+game:
+  max_plants: 10
+  base_health: 100
+  grace_period: 10
+  plant_cost: 50
+  attack_cost: 50
+  water_cost: 10
+  shield_cost: 50
+  help_cost: 50
