@@ -174,8 +174,10 @@ class GameComponent(commands.Component):
         # Dispatch to JS...
 
     async def end_game(self, broadcaster: twitchio.PartialUser) -> None:
-        LOGGER.debug("Waiting 60 seconds before terminating game loop thread for '%s'.", broadcaster.name)
-        await asyncio.sleep(self.grace * 60)
+        delay = self.grace * 60
+
+        LOGGER.debug("Waiting %d seconds before terminating game loop thread for '%s'.", delay, broadcaster.name)
+        await asyncio.sleep(delay)
 
         game = self.games.pop(broadcaster, None)
         if game:
