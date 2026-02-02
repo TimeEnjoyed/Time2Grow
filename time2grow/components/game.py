@@ -30,7 +30,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import twitchio
 from twitchio import Colour
@@ -42,6 +42,7 @@ from ..plants import Plant
 
 
 if TYPE_CHECKING:
+    from ..adapter import GameAdapter
     from ..bot import Bot
     from ..types_ import RewardCommandCoro, RewardCommandMappingT
 
@@ -53,7 +54,12 @@ type CBCoro = Callable[[GameLoop, set[Plant]], Coroutine[Any, Any, None]]
 class GameLoop(threading.Thread):
     TICK: float = 1.0
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, *, cb: CBCoro, max_plants: int) -> None:
+    def __init__(
+        self, loop: asyncio.AbstractEventLoop, *, cb: CBCoro, max_plants: int, owner: twitchio.PartialUser, overlay_id: str
+    ) -> None:
+        self.owner = owner
+        self.overlay_id = overlay_id
+
         self._plants: dict[str, Plant] = {}
         self._plant_queue: deque[Plant] = deque()
         self._max_plants = max_plants
@@ -78,18 +84,18 @@ class GameLoop(threading.Thread):
             updates: set[Plant] = set()
             for uid, plant in self._plants.copy().items():
                 if plant.should_exit():
-                    updates.add(plant)
+                    updates.add(plant.copy())
 
                     with self.lock:
                         self._plants.pop(uid, None)
 
                     continue
 
-                if plant.should_update():
-                    plant.update()
+                plant.update()
 
                 if plant.has_updates:
-                    updates.add(plant)
+                    plant.has_updates = False
+                    updates.add(plant.copy())
 
             if self._should_close:
                 break
@@ -98,7 +104,8 @@ class GameLoop(threading.Thread):
                 self.update(updates)
 
     def update(self, updates: set[Plant]) -> None:
-        self.loop.call_soon_threadsafe(self.cb, self, updates)
+        coro = self.cb(self, updates)
+        _future = asyncio.run_coroutine_threadsafe(coro, self.loop)
 
     def add_plant(self, plant: Plant) -> None:
         if len(self._plants) + len(self._plant_queue) >= self._max_plants:
@@ -128,12 +135,17 @@ class GameLoop(threading.Thread):
     def closing(self) -> bool:
         return self._should_close
 
+    def sort_positions(self) -> list[str]:
+        plants = sorted([p.copy() for p in self._plants.values()], key=lambda p: (-p.level, p.created_at))
+        return [p.id for p in plants]
+
 
 class GameComponent(commands.Component):
     def __init__(self, bot: Bot) -> None:
         self.bot = bot
-        game_config = CONFIG["game"]
+        self.adapter: GameAdapter = cast("GameAdapter", self.bot.adapter)
 
+        game_config = CONFIG["game"]
         self.grace: int = game_config["grace_period"]
         self.games: dict[twitchio.PartialUser, GameLoop] = {}
         self.end_tasks: dict[twitchio.PartialUser, asyncio.Task[None]] = {}
@@ -171,7 +183,7 @@ class GameComponent(commands.Component):
         for plant in plants:
             await plant.update_meta()
 
-        # Dispatch to JS...
+        await self.adapter.dispatch(game, plants=plants)
 
     async def end_game(self, broadcaster: twitchio.PartialUser) -> None:
         delay = self.grace * 60
@@ -187,9 +199,6 @@ class GameComponent(commands.Component):
 
     async def setup_game(self, broadcaster: twitchio.PartialUser) -> None:
         LOGGER.info("Attemping to start the game loop thread and add commands for '%s'.", broadcaster.name)
-
-        game = GameLoop(self.loop, cb=self.loop_callback, max_plants=CONFIG["game"]["max_plants"])
-        self.games[broadcaster] = game
 
         # Fetch broadcaster rewards and create reward commands...
         # Create any missing rewards...
@@ -209,7 +218,23 @@ class GameComponent(commands.Component):
             rid = await self.create_reward(broadcaster=broadcaster, name=name)
             self.create_reward_command(name, rid)
 
+        model = await self.bot.db.fetch_broadcaster(broadcaster.id)
+        if not model:
+            LOGGER.error("Unable to locate stored broadcaster model for %s", broadcaster.name)
+            return
+
+        self.bot.overlays[model.uid] = model.overlay_id
+
+        game = GameLoop(
+            self.loop,
+            cb=self.loop_callback,
+            max_plants=CONFIG["game"]["max_plants"],
+            owner=broadcaster,
+            overlay_id=model.overlay_id,
+        )
+        self.games[broadcaster] = game
         game.start()
+
         LOGGER.info("Successfully started the game for '%s'.", broadcaster.name)
 
     async def create_reward(self, *, broadcaster: twitchio.PartialUser, name: str) -> str:
@@ -305,7 +330,7 @@ class GameComponent(commands.Component):
             await ctx.redemption.refund(token_for=broadcaster)
             return
 
-        plant = Plant(user=ctx.chatter)
+        plant = Plant(user=ctx.chatter, db=self.bot.db)
 
         try:
             await self.add_plant(game, plant)
@@ -329,6 +354,28 @@ class GameComponent(commands.Component):
     async def help_cb(self, ctx: commands.Context[Bot], *, inp: str) -> None: ...
 
     async def shield_cb(self, ctx: commands.Context[Bot], *, inp: str | None = None) -> None: ...
+
+    @commands.command()
+    @commands.is_owner()
+    async def start(self, ctx: commands.Context[Bot]) -> None:
+        await self.setup_game(ctx.broadcaster)
+
+    @commands.command()
+    @commands.is_owner()
+    async def p(self, ctx: commands.Context[Bot], name: str, level: int) -> None:
+        import random
+
+        user = self.bot.create_partialuser(user_id=random.randint(1000, 4000), user_login=name)
+        plant = Plant(user=user, db=self.bot.db)
+        plant._level = level
+
+        game = self.games.get(ctx.broadcaster)
+        if not game:
+            await ctx.send(f"{ctx.chatter.mention} the plant game cannot be used here currently.")
+            return
+
+        await self.add_plant(game, plant)
+        await ctx.send(f"{name} added a plant to the garden!")
 
 
 async def setup(bot: Bot) -> None:
