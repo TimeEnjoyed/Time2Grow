@@ -79,3 +79,17 @@ class RewardCommandMappingT(TypedDict):
     prompt: str | None
     cost: int
     colour: Colour
+
+
+class PlantJSONT(TypedDict):
+    id: str
+    html: str
+    level: int
+    is_dead: bool
+    is_new: bool
+
+
+class DispatchDataT(TypedDict):
+    plants: list[PlantJSONT]
+    fresh: bool
+    positions: list[str]
