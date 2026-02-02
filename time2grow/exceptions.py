@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-__all__ = ("PlantError", "PlantExistsError", "PlantsFullError")
+__all__ = ("NoReviveError", "PlantError", "PlantExistsError", "PlantsFullError")
 
 
 class PlantError(Exception): ...
@@ -32,3 +32,6 @@ class PlantsFullError(PlantError): ...
 
 
 class PlantExistsError(PlantError): ...
+
+
+class NoReviveError(PlantError): ...
