@@ -82,8 +82,9 @@ class Bot(commands.AutoBot):
             return
 
         await self.subscribe(payload.user_id)
+        await self.db.add_broadcaster(user_id=payload.user_id)
 
-        user = self.create_partialuser(user_id=payload.user_id)
+        user = self.create_partialuser(user_id=payload.user_id, user_login=payload.user_login)
         game_component: GameComponent = cast("GameComponent", self.get_component("GameComponent"))
         await game_component.setup_game(user)
 
