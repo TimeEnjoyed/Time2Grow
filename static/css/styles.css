@@ -31,7 +31,7 @@ body, html {
 
 .plantSection {
     display: flex;
-    flex-direction: row-reverse;
+    flex-direction: row;
     flex-wrap: wrap-reverse;
     justify-content: center;
     gap: 2rem;

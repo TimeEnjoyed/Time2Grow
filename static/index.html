@@ -3,15 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Time2Grow</title>
+    <title>Time2Grow - Overlay</title>
 
-    <script src="js/script.js"></script>
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
     <div class="container">
-        <div class="plantSection">
+        <div id="garden" class="plantSection">
         </div>
     </div>
+<script>
+const sse = new EventSource(window.location.href + "/sse");
+
+
+const createPlant = (plant) => {
+    const el = document.createElement("div");
+
+    el.id = plant["id"];
+    el.classList.add("plantContainer");
+
+    return el;
+};
+
+sse.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    const plants = data["plants"];
+    const positions = data["positions"];
+    const garden = document.getElementById("garden");
+    let el;
+
+    if (!garden) {
+        console.error("No garden section found.");
+        return;
+    }
+
+    for (let plant of plants) {
+        if (plant["is_new"] || data["fresh"]) {
+            el = createPlant(plant);
+        } else {
+            el = document.getElementById(plant["id"]);
+        }
+
+        if (!el) {
+            console.log(`Unable to create or find specified plant with ID: ${plant['id']}`);
+            continue
+        }
+
+        if (plant["is_dead"]) {
+            garden.removeChild(el);
+            return;
+        }
+
+        el.innerHTML = plant["html"];
+        if (plant["is_new"] || data["fresh"]) {
+            garden.insertAdjacentElement("beforeend", el);
+        }
+    }
+
+    let count = 0;
+
+    for (let pid of positions) {
+        let plantEl = document.getElementById(pid);
+        if (!plantEl) { continue }
+
+        plantEl.style.order = count;
+        count++;
+    }
+};
+</script>
 </body>
 </html>
