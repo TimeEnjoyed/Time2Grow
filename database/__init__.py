@@ -111,6 +111,26 @@ class Database:
         else:
             LOGGER.info("Sucessfully closed Database.")
 
+    async def fetch_broadcaster_by_overlay(self, oid: str) -> BroadcasterModel | None:
+        """Method to fetch a stored broadcaster by overlay ID."""
+
+        query = """SELECT * FROM broadcasters WHERE overlay_id = $1"""
+
+        async with self.acquire() as connection:
+            row = await connection.fetchrow(query, oid, record_class=BroadcasterModel)
+
+        return row
+
+    async def fetch_broadcaster(self, uid: str) -> BroadcasterModel | None:
+        """Method to fetch a stored broadcaster."""
+
+        query = """SELECT * FROM broadcasters WHERE uid = $1"""
+
+        async with self.acquire() as connection:
+            row = await connection.fetchrow(query, uid, record_class=BroadcasterModel)
+
+        return row
+
     async def fetch_broadcasters(self) -> list[BroadcasterModel]:
         """Method to fetch every stored broadcaster."""
 
